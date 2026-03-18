@@ -1,16 +1,31 @@
-# actions-oidc-gateway-example
+# actions-oidc-gateway-slickdeals
 
-[![Run CI](https://github.com/github/actions-oidc-gateway-example/actions/workflows/ci.yml/badge.svg)](https://github.com/github/actions-oidc-gateway-example/actions/workflows/ci.yml)
+[![Run CI](https://github.com/Slickdeals/actions-oidc-gateway-slickdeals/actions/workflows/ci.yml/badge.svg)](https://github.com/Slickdeals/actions-oidc-gateway-slickdeals/actions/workflows/ci.yml)
 
-Have you ever wanted to connect to a private network from a GitHub-hosted Actions runner?
+An OIDC gateway that authorizes traffic from GitHub Actions into your private network, either as an API gateway or as an HTTP CONNECT proxy tunnel.
 
-This gateway is a reference implementation of how to authorize traffic from Actions into your private network, either as an API gateway or as an HTTP CONNECT proxy tunnel.
+## Authorization
 
-It is *not* intended to be used as-is.
+The gateway validates GitHub Actions OIDC tokens and enforces the following claims:
 
-At a minimum, you'd want to customize the claim check for your use case (see [Configuring the OIDC trust with the cloud](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect#configuring-the-oidc-trust-with-the-cloud) for examples as to what's possible here). The default configuration only allows Actions from the repo `octo-org/octo-repo`.
+- **`repository_owner`** must equal `Slickdeals` -- only workflows running in the Slickdeals GitHub Organization are permitted.
+- **`aud`** must equal `api://ActionsOIDCGateway` -- prevents token reuse across services.
 
-Then, if you're using this as an API gateway, you probably want to customize the existing `/apiExample` handler (unless you **really** need proxied access to the Bing homepage?). You could add additional handlers, and even customize the claim checking per handler if you'd like.
+### Optional repo allowlist
+
+By default, any repository within the `Slickdeals` org is authorized. To restrict access to specific repositories, populate the `allowedRepos` variable in `oidc_gateway.go`:
+
+```go
+var allowedRepos = []string{"my-app", "my-service"}
+```
+
+When `allowedRepos` is non-empty, only the listed repositories (by name, not `org/repo`) are permitted. When empty, all repos in the org are allowed.
+
+For other claims you can check, see [Configuring the OIDC trust with the cloud](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect#configuring-the-oidc-trust-with-the-cloud).
+
+## Customization
+
+If you're using this as an API gateway, customize the existing `/apiExample` handler. You can add additional handlers, and even customize the claim checking per handler if you'd like.
 
 Lastly, you are responsible for deploying this gateway in a secure way with access to your private network. There's lots of different options here, but you probably want this gateway to be behind a load balancer that speaks TLS, with scoped network access to the private services it provides access to. That will probably look something like this:
 

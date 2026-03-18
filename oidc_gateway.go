@@ -10,10 +10,17 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 )
+
+const allowedOrg = "Slickdeals"
+
+// Leave empty to allow all repos in the org.
+// Populate to restrict to specific repos (just the repo name, not "org/repo").
+var allowedRepos = []string{}
 
 type JWK struct {
 	N   string
@@ -154,6 +161,20 @@ func handleApiRequest(w http.ResponseWriter) {
 	io.Copy(w, resp.Body)
 }
 
+func isAllowedRepo(repository string) bool {
+	parts := strings.SplitN(repository, "/", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	repoName := parts[1]
+	for _, allowed := range allowedRepos {
+		if repoName == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodConnect && req.RequestURI != "/apiExample" {
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -180,9 +201,17 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 	//
 	// Here we check the same claims for all requests, but you could customize
 	// the claims you check per handler below
-	if claims["repository"] != "octo-org/octo-repo" {
+	if claims["repository_owner"] != allowedOrg {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
+	}
+
+	if len(allowedRepos) > 0 {
+		repo, ok := claims["repository"].(string)
+		if !ok || !isAllowedRepo(repo) {
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
 	}
 
 	// You can customize the audience when you request an Actions OIDC token.
