@@ -40,6 +40,15 @@ type JWKS struct {
 type GatewayContext struct {
 	jwksCache      []byte
 	jwksLastUpdate time.Time
+	httpClient     *http.Client
+}
+
+// Headers that should not be forwarded to the backend service
+var sensitiveHeaders = map[string]bool{
+	"Gateway-Authorization": true,
+	"Authorization":         true,
+	"Cookie":                true,
+	"Set-Cookie":            true,
 }
 
 func getKeyFromJwks(jwksBytes []byte) func(*jwt.Token) (interface{}, error) {
@@ -149,7 +158,7 @@ func handleProxyRequest(w http.ResponseWriter, req *http.Request) {
 	go transfer(reqConn, proxyConn)
 }
 
-func handleApiRequest(w http.ResponseWriter, req *http.Request) {
+func handleApiRequest(w http.ResponseWriter, req *http.Request, gc *GatewayContext) {
 	// Forward the request to sd-core service
 	targetURL := "http://sd-core.internal:8080" + req.URL.Path
 	if req.URL.RawQuery != "" {
@@ -163,17 +172,16 @@ func handleApiRequest(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Copy headers from original request, excluding the gateway auth header
+	// Copy headers from original request, excluding sensitive headers
 	for key, values := range req.Header {
-		if key != "Gateway-Authorization" {
+		if !sensitiveHeaders[key] {
 			for _, value := range values {
 				proxyReq.Header.Add(key, value)
 			}
 		}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(proxyReq)
+	resp, err := gc.httpClient.Do(proxyReq)
 	if err != nil {
 		fmt.Println(err)
 		http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
@@ -265,14 +273,17 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 	if req.Method == http.MethodConnect {
 		handleProxyRequest(w, req)
 	} else if isApiRoute(req.URL.Path) {
-		handleApiRequest(w, req)
+		handleApiRequest(w, req, gatewayContext)
 	}
 }
 
 func main() {
 	fmt.Println("starting up")
 
-	gatewayContext := &GatewayContext{jwksLastUpdate: time.Now()}
+	gatewayContext := &GatewayContext{
+		jwksLastUpdate: time.Now(),
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+	}
 
 	server := http.Server{
 		Addr:         ":8000",

@@ -185,7 +185,11 @@ func newTestGatewayContext(t *testing.T) (*GatewayContext, *rsa.PrivateKey) {
 	jwks := JWKS{Keys: []JWK{jwk}}
 	jwksBytes, _ := json.Marshal(jwks)
 
-	gc := &GatewayContext{jwksCache: jwksBytes, jwksLastUpdate: time.Now()}
+	gc := &GatewayContext{
+		jwksCache:      jwksBytes,
+		jwksLastUpdate: time.Now(),
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+	}
 	return gc, privateKey
 }
 
