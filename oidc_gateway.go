@@ -20,7 +20,7 @@ const allowedOrg = "Slickdeals"
 
 // Leave empty to allow all repos in the org.
 // Populate to restrict to specific repos (just the repo name, not "org/repo").
-var allowedRepos = []string{}
+var allowedRepos = []string{"sd-core"}
 
 type JWK struct {
 	N   string
@@ -149,15 +149,45 @@ func handleProxyRequest(w http.ResponseWriter, req *http.Request) {
 	go transfer(reqConn, proxyConn)
 }
 
-func handleApiRequest(w http.ResponseWriter) {
-	resp, err := http.Get("https://www.bing.com")
+func handleApiRequest(w http.ResponseWriter, req *http.Request) {
+	// Forward the request to sd-core service
+	targetURL := "http://sd-core.internal:8080" + req.URL.Path
+	if req.URL.RawQuery != "" {
+		targetURL += "?" + req.URL.RawQuery
+	}
+
+	proxyReq, err := http.NewRequest(req.Method, targetURL, req.Body)
 	if err != nil {
 		fmt.Println(err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
+	// Copy headers from original request, excluding the gateway auth header
+	for key, values := range req.Header {
+		if key != "Gateway-Authorization" {
+			for _, value := range values {
+				proxyReq.Header.Add(key, value)
+			}
+		}
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		fmt.Println(err)
+		http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+		return
+	}
 	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
 
@@ -175,8 +205,13 @@ func isAllowedRepo(repository string) bool {
 	return false
 }
 
+// isApiRoute checks if the request path is an API route that should be proxied to sd-core
+func isApiRoute(path string) bool {
+	return strings.HasPrefix(path, "/api/")
+}
+
 func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodConnect && req.RequestURI != "/apiExample" {
+	if req.Method != http.MethodConnect && !isApiRoute(req.URL.Path) {
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
@@ -229,8 +264,8 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 	// Now that claims have been verified, we can service the request
 	if req.Method == http.MethodConnect {
 		handleProxyRequest(w, req)
-	} else if req.RequestURI == "/apiExample" {
-		handleApiRequest(w)
+	} else if isApiRoute(req.URL.Path) {
+		handleApiRequest(w, req)
 	}
 }
 

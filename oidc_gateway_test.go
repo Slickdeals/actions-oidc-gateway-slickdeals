@@ -149,6 +149,27 @@ func TestIsAllowedRepo(t *testing.T) {
 	}
 }
 
+func TestIsApiRoute(t *testing.T) {
+	if !isApiRoute("/api/test") {
+		t.Error("Should accept paths starting with /api/")
+	}
+	if !isApiRoute("/api/v1/users") {
+		t.Error("Should accept nested API paths")
+	}
+	if isApiRoute("/apiExample") {
+		t.Error("Should reject paths not starting with /api/")
+	}
+	if isApiRoute("/other/api/test") {
+		t.Error("Should reject paths where /api/ is not at the start")
+	}
+	if isApiRoute("/") {
+		t.Error("Should reject root path")
+	}
+	if isApiRoute("") {
+		t.Error("Should reject empty path")
+	}
+}
+
 func newTestGatewayContext(t *testing.T) (*GatewayContext, *rsa.PrivateKey) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -192,7 +213,7 @@ func TestServeHTTP_OrgAuthorization(t *testing.T) {
 			"aud":              "api://ActionsOIDCGateway",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)
@@ -209,7 +230,7 @@ func TestServeHTTP_OrgAuthorization(t *testing.T) {
 			"aud":              "api://ActionsOIDCGateway",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)
@@ -225,7 +246,7 @@ func TestServeHTTP_OrgAuthorization(t *testing.T) {
 			"aud":        "api://ActionsOIDCGateway",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)
@@ -249,7 +270,7 @@ func TestServeHTTP_RepoAllowlist(t *testing.T) {
 			"aud":              "api://ActionsOIDCGateway",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)
@@ -267,7 +288,7 @@ func TestServeHTTP_RepoAllowlist(t *testing.T) {
 			"aud":              "api://ActionsOIDCGateway",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)
@@ -285,7 +306,7 @@ func TestServeHTTP_RepoAllowlist(t *testing.T) {
 			"aud":              "api://ActionsOIDCGateway",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)
@@ -303,7 +324,7 @@ func TestServeHTTP_RepoAllowlist(t *testing.T) {
 			"aud":              "wrong-audience",
 		}, privateKey)
 
-		req := httptest.NewRequest(http.MethodGet, "/apiExample", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 		req.Header.Set("Gateway-Authorization", token)
 		rr := httptest.NewRecorder()
 		gc.ServeHTTP(rr, req)

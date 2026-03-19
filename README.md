@@ -11,21 +11,27 @@ The gateway validates GitHub Actions OIDC tokens and enforces the following clai
 - **`repository_owner`** must equal `Slickdeals` -- only workflows running in the Slickdeals GitHub Organization are permitted.
 - **`aud`** must equal `api://ActionsOIDCGateway` -- prevents token reuse across services.
 
-### Optional repo allowlist
+### Repo allowlist
 
-By default, any repository within the `Slickdeals` org is authorized. To restrict access to specific repositories, populate the `allowedRepos` variable in `oidc_gateway.go`:
+By default, only the `sd-core` repository is authorized to use the OIDC gateway. To modify the allowlist, update the `allowedRepos` variable in `oidc_gateway.go`:
 
 ```go
-var allowedRepos = []string{"my-app", "my-service"}
+var allowedRepos = []string{"sd-core", "other-repo"}
 ```
 
-When `allowedRepos` is non-empty, only the listed repositories (by name, not `org/repo`) are permitted. When empty, all repos in the org are allowed.
+When `allowedRepos` is non-empty, only the listed repositories (by name, not `org/repo`) are permitted. Set it to an empty slice to allow all repos in the org.
 
 For other claims you can check, see [Configuring the OIDC trust with the cloud](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect#configuring-the-oidc-trust-with-the-cloud).
 
+## API Gateway
+
+The gateway proxies API requests to the `sd-core` service. All requests to paths starting with `/api/` are forwarded to `http://sd-core.internal:8080`.
+
+For example, a request to `https://your-load-balancer.example.com/api/v1/users` will be proxied to `http://sd-core.internal:8080/api/v1/users`.
+
 ## Customization
 
-If you're using this as an API gateway, customize the existing `/apiExample` handler. You can add additional handlers, and even customize the claim checking per handler if you'd like.
+If you need to modify the target service URL or add additional routing logic, update the `handleApiRequest` function in `oidc_gateway.go`.
 
 Lastly, you are responsible for deploying this gateway in a secure way with access to your private network. There's lots of different options here, but you probably want this gateway to be behind a load balancer that speaks TLS, with scoped network access to the private services it provides access to. That will probably look something like this:
 
@@ -39,7 +45,7 @@ flowchart LR
     LB[Load Balancer]
     LB-->G1[This Gateway]
     LB-->G2[This Gateway]
-    G1-->PS[Private Service]
+    G1-->PS[sd-core]
     end
 ```
 
@@ -67,9 +73,9 @@ jobs:
         run: |
           curl -v -p --proxy-header "Gateway-Authorization: ${{ env.OIDC_TOKEN }}" -x https://your-load-balancer.example.com https://www.google.com
 
-      - name: Example of an API gateway
+      - name: Example of an API gateway call to sd-core
         run: |
-          curl -v -H "Gateway-Authorization: ${{ env.OIDC_TOKEN }}" https://your-load-balancer.example.com/apiExample
+          curl -v -H "Gateway-Authorization: ${{ env.OIDC_TOKEN }}" https://your-load-balancer.example.com/api/v1/endpoint
 
     ...
 ```
