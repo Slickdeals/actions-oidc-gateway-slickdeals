@@ -176,6 +176,14 @@ func isAllowedRepo(repository string) bool {
 }
 
 func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Unauthenticated health check for ALB target group probes.
+	if req.RequestURI == "/healthz" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+		return
+	}
+
 	if req.Method != http.MethodConnect && req.RequestURI != "/apiExample" {
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
