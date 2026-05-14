@@ -24,7 +24,12 @@ jobs:
 
       - name: Proxy to nginx demo via gateway + PrivateLink
         run: |
-          curl -v \
+          # --proxytunnel forces CONNECT-style tunneling even for http:// targets.
+          # Without it, curl treats the proxy as a forward proxy and sends a plain
+          # HTTP GET with the absolute URL — the gateway only handles CONNECT and
+          # would return 404. The target uses http:// (not https://) because nginx
+          # serves plaintext; the NLB does L4 passthrough.
+          curl -v --proxytunnel \
             --proxy https://actions-gateway.slickdeals.tech \
             --proxy-header "Gateway-Authorization: bearer ${{ steps.oidc.outputs.token }}" \
             http://oidc-gateway-target.staging.slickdeals.internal:443/ \
@@ -38,7 +43,10 @@ jobs:
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=wrong-audience" \
             | jq -r .value)
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          # Use --proxytunnel so curl sends a CONNECT request the gateway will
+          # validate. The gateway should reject the bad audience with 401/403
+          # as part of the CONNECT response, captured here by %{http_code}.
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --proxytunnel \
             --proxy https://actions-gateway.slickdeals.tech \
             --proxy-header "Gateway-Authorization: bearer $BAD_TOKEN" \
             http://oidc-gateway-target.staging.slickdeals.internal:443/)
