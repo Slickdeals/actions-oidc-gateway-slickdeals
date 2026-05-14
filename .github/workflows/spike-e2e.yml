@@ -44,14 +44,23 @@ jobs:
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=wrong-audience" \
             | jq -r .value)
           # Use --proxytunnel so curl sends a CONNECT request the gateway will
-          # validate. The gateway should reject the bad audience with 401/403
-          # as part of the CONNECT response, captured here by %{http_code}.
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --proxytunnel \
+          # validate. Use %{http_connect} (not %{http_code}) — when CONNECT
+          # fails, %{http_code} is "000" but %{http_connect} carries the proxy
+          # response code (e.g. 401). Capture curl's stderr and exit code so
+          # transport failures (DNS, TLS, proxy unreachable) are distinguishable
+          # from an expected 401/403 auth rejection.
+          ERR=$(mktemp)
+          set +e
+          PROXY_CODE=$(curl -sS -o /dev/null -w "%{http_connect}" --proxytunnel \
             --proxy https://actions-gateway.slickdeals.tech \
             --proxy-header "Gateway-Authorization: $BAD_TOKEN" \
-            http://oidc-gateway-target.staging.slickdeals.internal:443/)
-          echo "Got HTTP $HTTP_CODE (expected 401 or 403)"
-          if [ "$HTTP_CODE" != "401" ] && [ "$HTTP_CODE" != "403" ]; then
-            echo "ERROR: expected 401/403 for bad audience, got $HTTP_CODE" >&2
+            http://oidc-gateway-target.staging.slickdeals.internal:443/ 2>"$ERR")
+          CURL_RC=$?
+          set -e
+          echo "curl exit: $CURL_RC; proxy CONNECT code: '$PROXY_CODE' (expected 401 or 403)"
+          if [ "$PROXY_CODE" != "401" ] && [ "$PROXY_CODE" != "403" ]; then
+            echo "ERROR: expected 401/403 for bad audience, got '$PROXY_CODE' (curl exit $CURL_RC)" >&2
+            echo "----- curl stderr -----" >&2
+            cat "$ERR" >&2
             exit 1
           fi
