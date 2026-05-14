@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -312,4 +313,51 @@ func TestServeHTTP_RepoAllowlist(t *testing.T) {
 			t.Errorf("expected 401 for wrong audience, got %d", rr.Code)
 		}
 	})
+}
+
+func TestHandleMetrics(t *testing.T) {
+	// Set known counter values and assert they round-trip into the
+	// Prometheus exposition. Counters are package globals; this test
+	// mutates them but does not call t.Parallel, so it runs sequentially.
+	connectionsAllowed.Store(42)
+	connectionsDenied.Store(7)
+	bytesIn.Store(1024)
+	bytesOut.Store(2048)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rr := httptest.NewRecorder()
+	(&GatewayContext{}).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /metrics, got %d", rr.Code)
+	}
+
+	body := rr.Body.String()
+	for _, want := range []string{
+		`# TYPE oidc_gateway_connections_total counter`,
+		`oidc_gateway_connections_total{outcome="allowed"} 42`,
+		`oidc_gateway_connections_total{outcome="denied"} 7`,
+		`# TYPE oidc_gateway_bytes_total counter`,
+		`oidc_gateway_bytes_total{direction="in"} 1024`,
+		`oidc_gateway_bytes_total{direction="out"} 2048`,
+		`oidc_gateway_build_info`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected metrics body to contain %q\nactual:\n%s", want, body)
+		}
+	}
+}
+
+func TestHealthzStillUnauthenticated(t *testing.T) {
+	// /healthz must remain unauthenticated for NLB target-group probes.
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rr := httptest.NewRecorder()
+	(&GatewayContext{}).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /healthz, got %d", rr.Code)
+	}
+	if got := rr.Body.String(); got != "ok" {
+		t.Errorf("expected body \"ok\", got %q", got)
+	}
 }
