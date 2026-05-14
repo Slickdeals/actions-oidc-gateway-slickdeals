@@ -31,7 +31,7 @@ jobs:
           # serves plaintext; the NLB does L4 passthrough.
           curl -v --proxytunnel \
             --proxy https://actions-gateway.slickdeals.tech \
-            --proxy-header "Gateway-Authorization: bearer ${{ steps.oidc.outputs.token }}" \
+            --proxy-header "Gateway-Authorization: ${{ steps.oidc.outputs.token }}" \
             http://oidc-gateway-target.staging.slickdeals.internal:443/ \
             -o response.html
           cat response.html
@@ -48,7 +48,7 @@ jobs:
           # as part of the CONNECT response, captured here by %{http_code}.
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --proxytunnel \
             --proxy https://actions-gateway.slickdeals.tech \
-            --proxy-header "Gateway-Authorization: bearer $BAD_TOKEN" \
+            --proxy-header "Gateway-Authorization: $BAD_TOKEN" \
             http://oidc-gateway-target.staging.slickdeals.internal:443/)
           echo "Got HTTP $HTTP_CODE (expected 401 or 403)"
           if [ "$HTTP_CODE" != "401" ] && [ "$HTTP_CODE" != "403" ]; then
