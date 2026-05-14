@@ -1,0 +1,49 @@
+name: ENGOPS-265 SPIKE e2e – gateway + PrivateLink
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  proxy-via-gateway:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch OIDC token
+        id: oidc
+        run: |
+          TOKEN=$(curl -sLS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api%3A%2F%2FActionsOIDCGateway" \
+            | jq -r .value)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Proxy to nginx demo via gateway + PrivateLink
+        run: |
+          curl -v \
+            --proxy https://actions-gateway.slickdeals.tech \
+            --proxy-header "Gateway-Authorization: bearer ${{ steps.oidc.outputs.token }}" \
+            http://oidc-gateway-target.staging.slickdeals.internal:443/ \
+            -o response.html
+          cat response.html
+          grep -q "ENGOPS-265 OIDC gateway PrivateLink target" response.html
+
+      - name: Negative test - rogue audience must be rejected
+        run: |
+          BAD_TOKEN=$(curl -sLS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=wrong-audience" \
+            | jq -r .value)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --proxy https://actions-gateway.slickdeals.tech \
+            --proxy-header "Gateway-Authorization: bearer $BAD_TOKEN" \
+            http://oidc-gateway-target.staging.slickdeals.internal:443/)
+          echo "Got HTTP $HTTP_CODE (expected 401 or 403)"
+          if [ "$HTTP_CODE" != "401" ] && [ "$HTTP_CODE" != "403" ]; then
+            echo "ERROR: expected 401/403 for bad audience, got $HTTP_CODE" >&2
+            exit 1
+          fi
