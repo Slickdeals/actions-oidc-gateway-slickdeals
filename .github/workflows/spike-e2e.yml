@@ -1,4 +1,4 @@
-name: ENGOPS-265 SPIKE e2e – gateway + PrivateLink
+name: ENGOPS-265 SPIKE e2e – gateway test (TGW path)
 
 on:
   workflow_dispatch:
@@ -22,20 +22,32 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      - name: Proxy to nginx demo via gateway + PrivateLink
+      - name: Proxy to staging.ui.eks.slickdeals.tech via gateway (TGW path, no VPCE)
         run: |
-          # --proxytunnel forces CONNECT-style tunneling even for http:// targets.
-          # Without it, curl treats the proxy as a forward proxy and sends a plain
-          # HTTP GET with the absolute URL — the gateway only handles CONNECT and
-          # would return 404. The target uses http:// (not https://) because nginx
-          # serves plaintext; the NLB does L4 passthrough.
-          curl -v --proxytunnel \
+          # TGW path test: target a real staging cluster ingress hostname instead
+          # of the SPIKE's PrivateLink-fronted demo nginx.
+          #
+          # Flow:
+          #   gateway resolves staging.ui.eks.slickdeals.tech via public DNS
+          #     → returns staging CLB's internal IPs (10.154.x)
+          #   gateway opens TCP 10.154.x:443 from shared-network VPC
+          #     → matches managed prefix list pl-0012f67f3104c836c (sd_cloud_vpcs)
+          #     → TGW (tgw-04becaec027e9040a, propagated route to staging attachment)
+          #     → staging VPC → ingress-nginx-internal CLB
+          #     → ingress-nginx controller → nuxt-web-ui-staging pod
+          #
+          # No VPCE, no PHZ, no VES involved. Uses --fail-with-body so curl exits
+          # non-zero on HTTP >=400 but still writes the body for diagnostics.
+          curl -v --proxytunnel --fail-with-body \
             --proxy https://actions-gateway.slickdeals.tech \
             --proxy-header "Gateway-Authorization: ${{ steps.oidc.outputs.token }}" \
-            http://oidc-gateway-target.staging.slickdeals.internal:443/ \
+            https://staging.ui.eks.slickdeals.tech/ \
             -o response.html
-          cat response.html
-          grep -q "ENGOPS-265 OIDC gateway PrivateLink target" response.html
+          echo "----- response head -----"
+          head -c 2000 response.html || true
+          echo
+          echo "----- response size -----"
+          wc -c response.html
 
       - name: Negative test - rogue audience must be rejected
         run: |
@@ -54,7 +66,7 @@ jobs:
           PROXY_CODE=$(curl -sS -o /dev/null -w "%{http_connect}" --proxytunnel \
             --proxy https://actions-gateway.slickdeals.tech \
             --proxy-header "Gateway-Authorization: $BAD_TOKEN" \
-            http://oidc-gateway-target.staging.slickdeals.internal:443/ 2>"$ERR")
+            https://staging.ui.eks.slickdeals.tech/ 2>"$ERR")
           CURL_RC=$?
           set -e
           echo "curl exit: $CURL_RC; proxy CONNECT code: '$PROXY_CODE' (expected 401 or 403)"
